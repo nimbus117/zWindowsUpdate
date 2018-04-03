@@ -1,0 +1,108 @@
+TOPIC
+
+    about_zWindowsUpdate
+
+SHORT DESCRIPTION
+
+    Search for, download and install windows updates on local or remote computers.
+
+LONG DESCRIPTION
+
+    You can use the functions provided in this module to interactively run and control Windows Update on multiple remote computers.
+
+    The module consists of the script 'zWUScript.ps1' and the *-zWU* functions, described below, which are used for creating and controlling a scheduled task that runs the script.
+
+
+    Get-zWULog
+
+    Get-zWUTask
+
+    New-zWUTask
+
+    Remove-zWUTask
+
+    Start-zWUTask
+
+    Stop-zWUTask
+
+    Wait-zWUTask
+
+
+
+EXAMPLE USAGE
+
+    EXAMPLE1 - Install critical and security updates then reboot atomatically.
+
+
+    $comp = 'srv01','srv02','sr03'
+
+    New-zWUTask -ComputerName $comp -UpdateType CriticalUpdates,SecurityUpdates -Reboot
+
+    Start-zWUTask -ComputerName $comp
+
+
+
+    EXAMPLE2 - Download/stage updates, trigger the install then reboot manually.
+
+
+    $comp = (Get-ADComputer -Filter "operatingsystem -like '*windows*'").Name | Out-GridView -PassThru
+
+    New-zWUTask $comp -Confirm:$false -DownloadOnly -AutoSelect | Start-zWUTask -Confirm:$false | Wait-zWUTask | Get-zWULog $comp -Full | Out-GridView
+
+    New-zWUTask $comp -Confirm:$false -AutoSelect | Start-zWUTask -Confirm:$false | Wait-zWUTask | Get-zWULog $comp -Full | Out-GridView
+
+    $Restart = (Get-zWULog $comp | Out-GridView -PassThru).ComputerName
+
+    Restart-Computer -ComputerName $Restart -Wait -Force
+
+    New-zWUTask $comp -Confirm:$false -SearchOnly -AutoSelect | Start-zWUTask -Confirm:$false | Wait-zWUTask | Get-zWULog $comp -Full | Out-GridView
+
+
+
+    EXAMPLE 3 - Schedule daily Definition updates on all Server 2016 machines.
+
+
+    $comp = (Get-ADComputer -Filter "operatingsystem -like '*2016*'").Name
+
+    New-zWUTask $comp -UpdateType Definitions
+        
+    $Trigger = New-ScheduledTaskTrigger -Daily -At 05:00
+        
+    Set-ScheduledTask -TaskName zWindowsUpdate -Trigger $Trigger -CimSession $comp
+
+
+
+    EXAMPLE 4 - Azure VM secured with SSL using a self-signed certificate.
+
+    First run the below commands on the Azure VM to setup a HTTPS WinRM listener.
+
+    New-NetFirewallRule `
+        -Name "WinRM HTTPS" `
+        -DisplayName "WinRM HTTPS" `
+        -Enabled True `
+        -Profile Any `
+        -Action Allow `
+        -Direction Inbound `
+        -LocalPort 5986 `
+        -Protocol TCP
+    
+    $Thumbprint = (New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My).Thumbprint   
+    
+    New-Item -Path WSMan:\Localhost\Listener -Transport HTTPS -Address * -CertificateThumbprint $Thumbprint
+
+    Then run the following from your local computer.
+
+    $comp = 'xxx.xxx.xxx.xxx'
+    $cred = Get-Credential
+    $PSSessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck
+    $CimSessionOption = New-CimSessionOption -UseSsl -SkipCACheck -SkipCNCheck
+
+    New-zWUTask $comp -Credential $cred -UseSSL -PSSessionOption $PSSessionOption -Confirm:$false -AutoSelect
+
+    Start-zWUTask $comp -Credential $cred -CimSessionOption $CimSessionOption -Confirm:$false
+
+    Wait-zWUTask $comp -Credential $cred -CimSessionOption $CimSessionOption
+
+    Get-zWULog $comp -Credential $cred -UseSSL -PSSessionOption $PSSessionOption -Full | ogv
+
+    Invoke-Command -ComputerName $comp -Credential $cred -ScriptBlock {Restart-Computer -Force} -UseSSL -SessionOption $PSSessionOption
